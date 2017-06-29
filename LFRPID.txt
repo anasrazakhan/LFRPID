@@ -1,0 +1,347 @@
+// For Wifi Commiunication
+
+
+#include <SoftwareSerial.h>
+
+// For Wifi 
+
+String ssid ="Wifi";
+String password="01234567";
+
+/*
+String ssid ="Wifi";
+String password="01234567";
+*/
+const byte rxPin = 50; // Wire this to Tx Pin of ESP8266
+const byte txPin = 51; // Wire this to Rx Pin of ESP8266
+SoftwareSerial ESP8266 (rxPin, txPin);
+volatile int leftResult = 0;
+volatile int RightResult = 0;
+String text;
+char incomingByte;
+
+
+/////////////////////////////////
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Pins for Motor Speed Sensors
+#include "TimerOne.h"
+
+
+volatile int x_leftRps = 0;
+volatile int y_RightRps = 0;
+
+///////////////////////////
+
+
+
+#define dir1PinA 22
+#define dir2PinA 23
+#define speedPinA 6
+
+#define dir1PinB 24
+#define dir2PinB 25
+#define speedPinB 7
+
+#define sensor1  27
+#define sensor2  28 
+#define sensor3  29 
+#define sensor4  30 
+#define sensor5  31 
+
+float pos;
+float lastError;
+float totalError = 0;
+const int Kp = 100;   
+const int Kd = 30;
+const int Ki = 0;   
+const int setPoint = 0;    
+unsigned short rightMotorSpeed;
+unsigned short leftMotorSpeed;
+float error = 0;
+float manipulated = 0;
+//const int maxSpeed = 70;
+///////////////////////////////////
+
+void setup() 
+{
+  
+  //Serial.begin(9600);
+  init_4motorandIRsensors();
+  setup4speedSensors();
+  Wifisetup();
+  
+}
+
+void loop() 
+{
+  
+  RxResponse();
+  Linefollowingtask();
+}
+
+void position()
+{
+  pos = 0;
+   if(digitalRead(sensor1) == 1)
+    pos += -4;
+  if(digitalRead(sensor2) == 1)
+    pos += -2;
+  if(digitalRead(sensor3) == 1)
+    pos += 0;
+  if(digitalRead(sensor4) == 1)
+    pos += 2;
+  if(digitalRead(sensor5) == 1)
+    pos += 4;
+}
+
+void Linefollowingtask()
+{
+   
+   position();
+//   if((abs(pos-setPoint)<0.4))
+//      goto speedwrite;
+   if(((digitalRead(sensor1)==0)&(digitalRead(sensor2)==0)&(digitalRead(sensor3)==0)&(digitalRead(sensor4)==0)&(digitalRead(sensor5)==0)))
+  {
+      analogWrite(speedPinA,0);
+      analogWrite(speedPinB,0);
+  }
+  else if(((digitalRead(sensor1)==1)&(digitalRead(sensor2)==1)&(digitalRead(sensor3)==1)&(digitalRead(sensor4)==1)&(digitalRead(sensor5)==1)))
+  {
+      analogWrite(speedPinA,0);
+      analogWrite(speedPinB,0);
+  }
+  else
+  {
+      lastError=error;
+      error = pos - setPoint;
+      totalError += error;
+      manipulated = (Kp*error)+(Kd*(error-lastError))+(Ki*totalError);
+
+      if(manipulated > 40)
+      {
+        manipulated = 40;
+      }
+      if(manipulated < -40)
+      {
+        manipulated = -40;
+      }
+      
+      if(manipulated<0)
+      {
+         rightMotorSpeed = 75 - int(abs((3.5*error)));
+         leftMotorSpeed = 75 - abs(int(manipulated)); 
+      }
+      
+      else
+      {
+        rightMotorSpeed = 75 - int(manipulated);
+        leftMotorSpeed = 75 - int(abs((3.5*error)));
+      }
+      speedwrite:
+      analogWrite(speedPinA,rightMotorSpeed);
+      analogWrite(speedPinB,leftMotorSpeed);
+  }
+
+}
+
+void init_4motorandIRsensors()
+{
+  pinMode(sensor1, INPUT);
+  pinMode(sensor2, INPUT);
+  pinMode(sensor3, INPUT);
+  pinMode(sensor4, INPUT);
+  pinMode(sensor5, INPUT);
+  pinMode(dir1PinA, OUTPUT);
+  pinMode(dir2PinA, OUTPUT);
+  pinMode(speedPinA, OUTPUT);
+  pinMode(dir1PinB, OUTPUT);
+  pinMode(dir2PinB, OUTPUT);
+  pinMode(speedPinB, OUTPUT);
+  digitalWrite(dir1PinA,HIGH);
+  digitalWrite(dir2PinA,LOW);
+  digitalWrite(dir1PinB,HIGH);
+  digitalWrite(dir2PinB,LOW);
+}
+
+
+void setup4speedSensors()
+{
+  Timer1.initialize(1000000); // set timer for 1sec
+  attachInterrupt(0, LeftRps, FALLING);  // increase counter when speed sensor pin goes High
+  attachInterrupt(1, RightRps, FALLING);  // increase counter when speed sensor pin goes High
+  Timer1.attachInterrupt( timerIsr ); // enable the timer
+    
+}
+
+void LeftRps()  // counts from the speed sensor
+{
+  x_leftRps++;
+}
+
+ void RightRps() 
+{
+  y_RightRps++;
+}
+
+
+void timerIsr()
+{
+   Timer1.detachInterrupt();  //stop the timer
+   int rotationleft = (x_leftRps / 24);  // divide by number of holes in Disc
+   int rotationRight = (y_RightRps / 24);
+   leftResult=(x_leftRps );
+   RightResult=(y_RightRps);
+   x_leftRps=0;  //  reset to zero
+   y_RightRps=0; //  reset to zero
+   //mpuDoyourwork();
+  Timer1.attachInterrupt( timerIsr );  //enable the timer
+}
+ //  Methods for Wifi 
+
+
+ void Wifisetup()
+{
+  Serial.begin(9600);
+  ESP8266.begin(9600); // Change this to the baudrate used by ESP8266
+  delay(1000); // Let the module self-initialize
+  reset();
+  ESP8266.println("");
+  connectWifi();
+  delay(1000);
+  getIP();
+  myinit();
+}
+void connectWifi() {
+String cmd = "AT+CWJAP=\"" +ssid+"\",\"" + password + "\"";
+  
+ESP8266.println(cmd);
+delay(300);
+if(ESP8266.find("OK")) {
+Serial.println("Connected!");
+}
+else {
+//connectWifi();
+Serial.println("Cannot connect to wifi"); }
+}
+
+void reset() {
+ESP8266.println("AT+RST");
+delay(100);
+if(ESP8266.find("OK") )
+Serial.println("Module Reset");
+else
+Serial.println("Module Not Connected");
+
+}
+void getIP()
+{
+  ESP8266.println("AT+CIFSR");
+  delay(30);
+  getResponse();  
+}
+void myinit()
+{
+     Serial.println("Set as multi point connection  ");
+
+     ESP8266.println("AT+CIPMUX=1");
+     getResponse();
+     delay(100);
+     Serial.println("Set port 80");
+
+     ESP8266.println("AT+CIPSERVER=1,80");
+     getResponse();
+}  
+
+void getResponse()
+{
+  while (ESP8266.available()){
+    
+     String inData = ESP8266.readStringUntil('\n');
+     Serial.println("Got reponse from ESP8266: " + inData);
+  }
+}
+
+void senddata()
+{  
+ 
+  String x0 = (String)leftResult;
+  String x1 = (String)RightResult;
+  //String x2 = (String)gForceX;
+ // String x3 = (String)gForceY;
+  //String x4 = (String)gForceZ;
+ // String x5 = (String)rotX;
+ // String x6 = (String)rotY;
+ // String x7 = (String)rotZ;
+ // String postRequest = x0 + " " + x1 + " " + x2 + " " + x3 + " " + x4 + " " + x5 + " " + x6 + " " + x7 +"\n";
+ // String postRequest = x0 + " " + x1;// + " " + x2 + "\n ";// + x3 + " " + x4 + " " + x5 + " " + x6 + " " + x7 +"\n";
+    String postRequest = x0 + " " + x1 +"\n";
+  String sendCmd = "AT+CIPSEND=0,";//determine the number of caracters to be sent.
+  ESP8266.print(sendCmd);
+  ESP8266.println(postRequest.length() );
+  delay(300);
+  if(ESP8266.find(">")) 
+  {
+    Serial.println("Sending..");
+    ESP8266.print(postRequest);
+  if( ESP8266.find("SEND OK")) 
+  {
+    Serial.println("Packet sent");
+  }
+  }
+ 
+}
+
+ void RxResponse()
+ {  
+  int x=0;
+if (ESP8266.available() > 0) 
+    {
+                // read the incoming byte:
+                incomingByte =(char)ESP8266.read();
+
+                // say what you got:
+                
+                Serial.print(incomingByte);
+                if(incomingByte != '\n' && incomingByte != ' ' )
+                {
+                  text.concat(incomingByte);
+                }
+                if(incomingByte == '7')
+                {
+                  x=1;
+                }
+                
+     }
+     if(x==1)
+       {
+      Serial.println(text);
+      //mpuDoyourwork();
+      text="";
+      x=0;
+      senddata();
+      }
+ }
+
+
+
